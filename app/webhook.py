@@ -18,15 +18,15 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
 
-from signal_loop_agents.config import WebhookSettings, load_webhook_settings
-from signal_loop_agents.inbox import (
+from app.config import WebhookSettings, load_webhook_settings
+from app.inbox import (
     Inbox,
     PostgresInbox,
     moved_to_agent_ready,
     parse_event_from_linear,
 )
 
-log = logging.getLogger("signal_loop_agents.webhook")
+log = logging.getLogger("app.webhook")
 
 # Linear sends `webhookTimestamp` in milliseconds and recommends rejecting
 # deliveries older than a minute to block replays.

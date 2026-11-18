@@ -14,13 +14,13 @@ import time
 import psycopg
 from celery import Celery
 
-from signal_loop_agents.config import WorkerSettings
-from signal_loop_agents.dev_run import (
+from app.config import WorkerSettings
+from app.orchestrator import (
     docker_run_container,
     github_pull_request_opener,
     run_dev_task,
 )
-from signal_loop_agents.inbox import (
+from app.inbox import (
     InboxEvent,
     fail_stale,
     get_event,
@@ -28,7 +28,7 @@ from signal_loop_agents.inbox import (
     mark_failed,
 )
 
-log = logging.getLogger("signal_loop_agents.worker")
+log = logging.getLogger("app.worker")
 
 STALE_CHECK_INTERVAL_SECONDS = 300.0
 
@@ -86,33 +86,33 @@ def pick_pending_tasks(conn: psycopg.Connection, settings: WorkerSettings) -> in
 
 
 def create_app(settings: WorkerSettings) -> Celery:
-    app = Celery("signal_loop_agents", broker=settings.broker_url)
+    app = Celery("kaffeepause", broker=settings.broker_url)
     app.conf.update(
         task_ignore_result=True,
         worker_prefetch_multiplier=1,
         broker_connection_retry_on_startup=True,
         beat_schedule={
             "check-pending-tasks": {
-                "task": "signal_loop_agents.check_pending_tasks",
+                "task": "app.check_pending_tasks",
                 "schedule": settings.poll_interval_seconds,
                 "options": {"expires": settings.poll_interval_seconds},
             },
             "fail-stale-tasks": {
-                "task": "signal_loop_agents.fail_stale_tasks",
+                "task": "app.fail_stale_tasks",
                 "schedule": STALE_CHECK_INTERVAL_SECONDS,
                 "options": {"expires": STALE_CHECK_INTERVAL_SECONDS},
             },
         },
     )
 
-    @app.task(name="signal_loop_agents.check_pending_tasks")
+    @app.task(name="app.check_pending_tasks")
     def check_pending_tasks() -> None:
         with psycopg.connect(settings.database_url, autocommit=True) as conn:
             handled = pick_pending_tasks(conn, settings)
         if handled:
             log.info("picked %s task(s)", handled)
 
-    @app.task(name="signal_loop_agents.fail_stale_tasks")
+    @app.task(name="app.fail_stale_tasks")
     def fail_stale_tasks() -> None:
         with psycopg.connect(settings.database_url, autocommit=True) as conn:
             failed = fail_stale(conn, settings.lease_seconds)

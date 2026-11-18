@@ -1,5 +1,5 @@
-from signal_loop_agents.config import WorkerSettings
-from signal_loop_agents.worker import STALE_CHECK_INTERVAL_SECONDS, create_app
+from app.config import WorkerSettings
+from app.worker import STALE_CHECK_INTERVAL_SECONDS, create_app
 
 SETTINGS = WorkerSettings(
     database_url="postgresql://unused",
@@ -11,14 +11,14 @@ SETTINGS = WorkerSettings(
 
 def test_app_registers_both_tasks():
     app = create_app(SETTINGS)
-    assert {"signal_loop_agents.check_pending_tasks", "signal_loop_agents.fail_stale_tasks"} <= set(
+    assert {"app.check_pending_tasks", "app.fail_stale_tasks"} <= set(
         app.tasks
     )
 
 
 def test_beat_polls_inbox_and_ticks_expire_at_the_interval():
     schedule = create_app(SETTINGS).conf.beat_schedule
-    assert schedule["check-pending-tasks"]["task"] == "signal_loop_agents.check_pending_tasks"
+    assert schedule["check-pending-tasks"]["task"] == "app.check_pending_tasks"
     assert schedule["check-pending-tasks"]["schedule"] == 2.0
     assert schedule["check-pending-tasks"]["options"] == {"expires": 2.0}
     assert schedule["fail-stale-tasks"]["schedule"] == STALE_CHECK_INTERVAL_SECONDS

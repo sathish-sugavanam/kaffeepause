@@ -20,12 +20,12 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from signal_loop_agents.config import WorkerSettings
-from signal_loop_agents.dev_agent import Result, Task
-from signal_loop_agents.github import authed_remote_url, create_pull_request
-from signal_loop_agents.inbox import InboxEvent
+from app.config import WorkerSettings
+from app.agents.dev import Result, Task
+from app.helpers.github import authed_remote_url, create_pull_request
+from app.inbox import InboxEvent
 
-log = logging.getLogger("signal_loop_agents.dev_run")
+log = logging.getLogger("app.orchestrator")
 
 BASE_BRANCH = "main"
 PROTECTED_PATHS = ("agents/", ".github/", ".claude/", "compose.yaml")
@@ -164,7 +164,7 @@ def docker_run_container(settings: WorkerSettings) -> RunContainer:
         client = docker.from_env()
         container = client.containers.run(
             settings.run_image,
-            [".venv/bin/python", "-m", "signal_loop_agents.dev_agent", str(run_dir)],
+            [".venv/bin/python", "-m", "app.agents.dev", str(run_dir)],
             environment=settings.agent_env,
             volumes={settings.runs_volume: {"bind": settings.runs_dir, "mode": "rw"}},
             detach=True,

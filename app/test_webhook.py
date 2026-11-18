@@ -6,9 +6,9 @@ import time
 import pytest
 from starlette.testclient import TestClient
 
-from signal_loop_agents.config import WebhookSettings
-from signal_loop_agents.inbox import NewEvent
-from signal_loop_agents.webhook import create_app
+from app.config import WebhookSettings
+from app.inbox import NewEvent
+from app.webhook import create_app
 
 SECRET = "test-secret"
 SETTINGS = WebhookSettings(linear_webhook_secret=SECRET, database_url="unused")

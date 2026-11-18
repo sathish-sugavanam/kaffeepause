@@ -6,16 +6,16 @@ import psycopg
 import pytest
 from psycopg_pool import AsyncConnectionPool
 
-from signal_loop_agents import worker
-from signal_loop_agents.config import WorkerSettings
-from signal_loop_agents.inbox import (
+from app import worker
+from app.config import WorkerSettings
+from app.inbox import (
     NewEvent,
     PostgresInbox,
-    claim_next,
+    get_event,
     fail_stale,
     mark_done,
 )
-from signal_loop_agents.worker import pick_next_task, pick_pending_tasks
+from app.worker import pick_next_task, pick_pending_tasks
 
 
 def new_event(delivery_id: str, issue_id: str | None = "i-1") -> NewEvent:
@@ -48,29 +48,29 @@ def test_record_dedupes_on_delivery_id(database_url, conn):
 
 def test_claim_takes_oldest_pending_event(database_url, conn):
     record(database_url, new_event("d-1", "i-1"), new_event("d-2", "i-2"))
-    event = claim_next(conn)
+    event = get_event(conn)
     assert (event.delivery_id, event.attempts, event.payload) == ("d-1", 1, {"delivery": "d-1"})
     assert statuses(conn) == {"d-1": "processing", "d-2": "pending"}
 
 
 def test_claim_skips_issues_already_in_progress(database_url, conn):
     record(database_url, new_event("d-1", "i-1"), new_event("d-2", "i-1"), new_event("d-3", "i-2"))
-    assert claim_next(conn).delivery_id == "d-1"
-    assert claim_next(conn).delivery_id == "d-3"
-    assert claim_next(conn) is None
+    assert get_event(conn).delivery_id == "d-1"
+    assert get_event(conn).delivery_id == "d-3"
+    assert get_event(conn) is None
 
 
 def test_next_event_for_issue_is_claimable_once_first_is_done(database_url, conn):
     record(database_url, new_event("d-1", "i-1"), new_event("d-2", "i-1"))
-    first = claim_next(conn)
+    first = get_event(conn)
     mark_done(conn, first.id)
-    assert claim_next(conn).delivery_id == "d-2"
+    assert get_event(conn).delivery_id == "d-2"
 
 
 def test_events_without_an_issue_do_not_block_each_other(database_url, conn):
     record(database_url, new_event("d-1", None), new_event("d-2", None))
-    assert claim_next(conn).delivery_id == "d-1"
-    assert claim_next(conn).delivery_id == "d-2"
+    assert get_event(conn).delivery_id == "d-1"
+    assert get_event(conn).delivery_id == "d-2"
 
 
 def test_database_forbids_two_events_in_progress_for_one_issue(database_url, conn):
@@ -87,7 +87,7 @@ def test_concurrent_claims_never_take_the_same_event(database_url):
 
     def claimer() -> None:
         with psycopg.connect(database_url, autocommit=True) as c:
-            while (event := claim_next(c)) is not None:
+            while (event := get_event(c)) is not None:
                 with lock:
                     claimed.append(event.delivery_id)
 
@@ -108,8 +108,8 @@ def claimed_ago(conn, delivery_id: str, age: timedelta) -> None:
 
 def test_fail_stale_fails_events_past_their_lease(database_url, conn):
     record(database_url, new_event("d-1", "i-1"), new_event("d-2", "i-2"))
-    claim_next(conn)
-    claim_next(conn)
+    get_event(conn)
+    get_event(conn)
     claimed_ago(conn, "d-1", timedelta(hours=2))
     claimed_ago(conn, "d-2", timedelta(minutes=5))
     assert fail_stale(conn, lease_seconds=3600) == 1
@@ -122,11 +122,11 @@ def test_fail_stale_fails_events_past_their_lease(database_url, conn):
 
 def test_fail_stale_frees_the_issue_for_its_next_event(database_url, conn):
     record(database_url, new_event("d-1", "i-1"), new_event("d-2", "i-1"))
-    claim_next(conn)
+    get_event(conn)
     claimed_ago(conn, "d-1", timedelta(hours=2))
-    assert claim_next(conn) is None
+    assert get_event(conn) is None
     fail_stale(conn, lease_seconds=3600)
-    assert claim_next(conn).delivery_id == "d-2"
+    assert get_event(conn).delivery_id == "d-2"
 
 
 SETTINGS = WorkerSettings(database_url="unused", broker_url="memory://")

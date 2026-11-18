@@ -1,4 +1,4 @@
-from signal_loop_agents.inbox import parse_event_from_linear
+from app.inbox import parse_event_from_linear
 
 
 def test_issue_event_is_keyed_by_identifier():

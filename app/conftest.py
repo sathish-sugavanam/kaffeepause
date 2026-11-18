@@ -1,4 +1,4 @@
-"""Integration tests against a real Postgres server.
+"""Fixtures for the integration tests in test_postgres.py, which need a real Postgres server.
 
 Set AGENTS_TEST_ADMIN_URL to a superuser URL, for example the Compose database:
     AGENTS_TEST_ADMIN_URL=postgresql://signal_loop:signal_loop@localhost:5432/postgres
@@ -16,7 +16,7 @@ from psycopg import sql
 from psycopg.conninfo import make_conninfo
 
 ADMIN_URL = os.environ.get("AGENTS_TEST_ADMIN_URL")
-MIGRATIONS = Path(__file__).resolve().parents[2] / "migrations"
+MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
 
 
 def apply_migrations(url: str) -> None:

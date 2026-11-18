@@ -1,6 +1,6 @@
 import pytest
 
-from signal_loop_agents.config import load_webhook_settings, load_worker_settings
+from app.config import load_webhook_settings, load_worker_settings
 
 
 def test_worker_settings_defaults(monkeypatch):

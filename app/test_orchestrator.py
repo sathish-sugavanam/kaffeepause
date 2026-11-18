@@ -4,15 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from signal_loop_agents.config import WorkerSettings
-from signal_loop_agents.dev_agent import Result, Task, commit_and_bundle, write_result
-from signal_loop_agents.dev_run import (
+from app.config import WorkerSettings
+from app.agents.dev import Result, Task, commit_and_bundle, write_result
+from app.orchestrator import (
     DevRunError,
     run_dev_task,
-    task_from_event,
+    get_task_from_event,
     touched_protected_paths,
 )
-from signal_loop_agents.inbox import InboxEvent
+from app.inbox import InboxEvent
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -76,7 +76,7 @@ def fake_agent(edit: dict[str, str]):
 
 
 def test_task_from_event_builds_branch_from_key_and_title():
-    task = task_from_event(event())
+    task = get_task_from_event(event())
     assert (task.issue_id, task.branch) == ("SIG-7", "agent/SIG-7-add-csv-export")
     assert task.description == "Export rows as CSV."
 

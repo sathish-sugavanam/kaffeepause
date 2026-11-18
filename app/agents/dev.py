@@ -1,6 +1,6 @@
 """The dev agent. Runs inside a throwaway run container, never in the worker.
 
-    python -m signal_loop_agents.dev_agent /runs/<run>
+    python -m app.agents.dev /runs/<run>
 
 The worker prepares the run folder: `task.json` with the issue, and `repo/`, a
 clone already on the agent's branch. The agent edits `repo/`. This script then
