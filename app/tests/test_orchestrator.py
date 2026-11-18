@@ -4,21 +4,24 @@ from pathlib import Path
 
 import pytest
 
-from app.config import WorkerSettings
 from app.agents.dev import Result, Task, commit_and_bundle, write_result
+from app.config import WorkerSettings
+from app.inbox import InboxEvent
 from app.orchestrator import (
     DevRunError,
-    run_dev_task,
     get_task_from_event,
+    run_dev_task,
     touched_protected_paths,
 )
-from app.inbox import InboxEvent
 
 
 def git(cwd: Path, *args: str) -> str:
     return subprocess.run(
         ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
-        cwd=cwd, check=True, capture_output=True, text=True,
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout
 
 
@@ -68,8 +71,16 @@ def fake_agent(edit: dict[str, str]):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
         ok = commit_and_bundle(run_dir, task)
-        write_result(run_dir, Result(ok=ok, summary="Added export.", turns=3, cost_usd=0.5,
-                                     error="" if ok else "agent made no changes"))
+        write_result(
+            run_dir,
+            Result(
+                ok=ok,
+                summary="Added export.",
+                turns=3,
+                cost_usd=0.5,
+                error="" if ok else "agent made no changes",
+            ),
+        )
         return 0 if ok else 1
 
     return run
@@ -82,8 +93,18 @@ def test_task_from_event_builds_branch_from_key_and_title():
 
 
 def test_protected_paths():
-    files = ["app.py", "agents/x.py", ".github/ci.yml", "compose.yaml", "docs/compose.yaml"]
-    assert touched_protected_paths(files) == ["agents/x.py", ".github/ci.yml", "compose.yaml"]
+    files = [
+        "app.py",
+        "agents/x.py",
+        ".github/ci.yml",
+        "compose.yaml",
+        "docs/compose.yaml",
+    ]
+    assert touched_protected_paths(files) == [
+        "agents/x.py",
+        ".github/ci.yml",
+        "compose.yaml",
+    ]
 
 
 def test_dev_run_pushes_branch_and_opens_pr(remote, settings):
@@ -94,14 +115,24 @@ def test_dev_run_pushes_branch_and_opens_pr(remote, settings):
         return "https://github.com/o/r/pull/1"
 
     url = run_dev_task(
-        event(), settings, run_container=fake_agent({"export.py": "def export(): ...\n"}),
-        open_pull_request=open_pr, remote_url=str(remote),
+        event(),
+        settings,
+        run_container=fake_agent({"export.py": "def export(): ...\n"}),
+        open_pull_request=open_pr,
+        remote_url=str(remote),
     )
     assert url == "https://github.com/o/r/pull/1"
     branch = "agent/SIG-7-add-csv-export"
     assert git(remote, "show", f"{branch}:export.py") == "def export(): ...\n"
-    assert git(remote, "log", "-1", "--format=%s", branch).strip() == "SIG-7: Add CSV export!"
-    assert (opened["head"], opened["base"], opened["title"]) == (branch, "main", "SIG-7: Add CSV export!")
+    assert (
+        git(remote, "log", "-1", "--format=%s", branch).strip()
+        == "SIG-7: Add CSV export!"
+    )
+    assert (opened["head"], opened["base"], opened["title"]) == (
+        branch,
+        "main",
+        "SIG-7: Add CSV export!",
+    )
     assert "Added export." in opened["body"]
     assert not any(Path(settings.runs_dir).iterdir())  # run folder cleaned up
 
@@ -109,8 +140,11 @@ def test_dev_run_pushes_branch_and_opens_pr(remote, settings):
 def test_dev_run_refuses_protected_paths(remote, settings):
     with pytest.raises(DevRunError, match="protected paths: agents/evil.py"):
         run_dev_task(
-            event(), settings, run_container=fake_agent({"agents/evil.py": "x\n"}),
-            open_pull_request=lambda **_: pytest.fail("must not open a PR"), remote_url=str(remote),
+            event(),
+            settings,
+            run_container=fake_agent({"agents/evil.py": "x\n"}),
+            open_pull_request=lambda **_: pytest.fail("must not open a PR"),
+            remote_url=str(remote),
         )
     assert "agent/" not in git(remote, "branch", "--list")
 
@@ -118,14 +152,20 @@ def test_dev_run_refuses_protected_paths(remote, settings):
 def test_dev_run_fails_when_agent_changes_nothing(remote, settings):
     with pytest.raises(DevRunError, match="agent made no changes"):
         run_dev_task(
-            event(), settings, run_container=fake_agent({}),
-            open_pull_request=lambda **_: pytest.fail("must not open a PR"), remote_url=str(remote),
+            event(),
+            settings,
+            run_container=fake_agent({}),
+            open_pull_request=lambda **_: pytest.fail("must not open a PR"),
+            remote_url=str(remote),
         )
 
 
 def test_dev_run_fails_on_missing_result(remote, settings):
     with pytest.raises(DevRunError, match="unreadable result.json"):
         run_dev_task(
-            event(), settings, run_container=lambda run_dir: 137,
-            open_pull_request=lambda **_: pytest.fail("must not open a PR"), remote_url=str(remote),
+            event(),
+            settings,
+            run_container=lambda run_dir: 137,
+            open_pull_request=lambda **_: pytest.fail("must not open a PR"),
+            remote_url=str(remote),
         )

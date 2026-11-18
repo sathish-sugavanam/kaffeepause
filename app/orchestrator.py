@@ -20,8 +20,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from app.config import WorkerSettings
 from app.agents.dev import Result, Task
+from app.config import WorkerSettings
 from app.helpers.github import authed_remote_url, create_pull_request
 from app.inbox import InboxEvent
 

@@ -5,13 +5,21 @@ from dataclasses import dataclass, field
 
 # Credentials the run container may receive. Whichever are set get passed on.
 # ANTHROPIC_AUTH_TOKEN with ANTHROPIC_BASE_URL is how a gateway such as OpenRouter is used.
-AGENT_CREDENTIALS = ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN")
+AGENT_CREDENTIALS = (
+    "ANTHROPIC_API_KEY",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "ANTHROPIC_AUTH_TOKEN",
+)
 # Other settings passed through to the run container when set.
 AGENT_SETTINGS = ("ANTHROPIC_BASE_URL", "DEV_AGENT_MODEL")
 
 
 def agent_env() -> dict[str, str]:
-    env = {k: os.environ[k] for k in AGENT_CREDENTIALS + AGENT_SETTINGS if os.environ.get(k)}
+    env = {
+        k: os.environ[k]
+        for k in AGENT_CREDENTIALS + AGENT_SETTINGS
+        if os.environ.get(k)
+    }
     if "ANTHROPIC_AUTH_TOKEN" in env:
         # A gateway token must not be shadowed by an API key (OpenRouter's instructions).
         env["ANTHROPIC_API_KEY"] = ""
@@ -50,13 +58,17 @@ def load_webhook_settings() -> WebhookSettings:
 
 def load_worker_settings() -> WorkerSettings:
     if not any(os.environ.get(k) for k in AGENT_CREDENTIALS):
-        raise RuntimeError(f"set one of {', '.join(AGENT_CREDENTIALS)} for the dev agent")
+        raise RuntimeError(
+            f"set one of {', '.join(AGENT_CREDENTIALS)} for the dev agent"
+        )
     return WorkerSettings(
         database_url=os.environ["DATABASE_URL"],
         broker_url=os.environ["REDIS_URL"],
         github_token=os.environ["GITHUB_TOKEN"],
         github_repo=os.environ["GITHUB_REPO"],
         agent_env=agent_env(),
-        poll_interval_seconds=float(os.environ.get("WORKER_POLL_INTERVAL_SECONDS", "2")),
+        poll_interval_seconds=float(
+            os.environ.get("WORKER_POLL_INTERVAL_SECONDS", "2")
+        ),
         lease_seconds=float(os.environ.get("WORKER_LEASE_SECONDS", "3600")),
     )

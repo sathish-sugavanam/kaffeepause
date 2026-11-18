@@ -15,17 +15,17 @@ import psycopg
 from celery import Celery
 
 from app.config import WorkerSettings
-from app.orchestrator import (
-    docker_run_container,
-    github_pull_request_opener,
-    run_dev_task,
-)
 from app.inbox import (
     InboxEvent,
     fail_stale,
     get_event,
     mark_done,
     mark_failed,
+)
+from app.orchestrator import (
+    docker_run_container,
+    github_pull_request_opener,
+    run_dev_task,
 )
 
 log = logging.getLogger("app.worker")

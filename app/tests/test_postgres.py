@@ -11,8 +11,8 @@ from app.config import WorkerSettings
 from app.inbox import (
     NewEvent,
     PostgresInbox,
-    get_event,
     fail_stale,
+    get_event,
     mark_done,
 )
 from app.worker import pick_next_task, pick_pending_tasks
@@ -49,12 +49,21 @@ def test_record_dedupes_on_delivery_id(database_url, conn):
 def test_claim_takes_oldest_pending_event(database_url, conn):
     record(database_url, new_event("d-1", "i-1"), new_event("d-2", "i-2"))
     event = get_event(conn)
-    assert (event.delivery_id, event.attempts, event.payload) == ("d-1", 1, {"delivery": "d-1"})
+    assert (event.delivery_id, event.attempts, event.payload) == (
+        "d-1",
+        1,
+        {"delivery": "d-1"},
+    )
     assert statuses(conn) == {"d-1": "processing", "d-2": "pending"}
 
 
 def test_claim_skips_issues_already_in_progress(database_url, conn):
-    record(database_url, new_event("d-1", "i-1"), new_event("d-2", "i-1"), new_event("d-3", "i-2"))
+    record(
+        database_url,
+        new_event("d-1", "i-1"),
+        new_event("d-2", "i-1"),
+        new_event("d-3", "i-2"),
+    )
     assert get_event(conn).delivery_id == "d-1"
     assert get_event(conn).delivery_id == "d-3"
     assert get_event(conn) is None
@@ -75,9 +84,13 @@ def test_events_without_an_issue_do_not_block_each_other(database_url, conn):
 
 def test_database_forbids_two_events_in_progress_for_one_issue(database_url, conn):
     record(database_url, new_event("d-1", "i-1"), new_event("d-2", "i-1"))
-    conn.execute("UPDATE inbox_events SET status = 'processing' WHERE delivery_id = 'd-1'")
+    conn.execute(
+        "UPDATE inbox_events SET status = 'processing' WHERE delivery_id = 'd-1'"
+    )
     with pytest.raises(psycopg.errors.UniqueViolation):
-        conn.execute("UPDATE inbox_events SET status = 'processing' WHERE delivery_id = 'd-2'")
+        conn.execute(
+            "UPDATE inbox_events SET status = 'processing' WHERE delivery_id = 'd-2'"
+        )
 
 
 def test_concurrent_claims_never_take_the_same_event(database_url):
@@ -142,7 +155,9 @@ def test_pick_next_task_marks_success_done(database_url, conn, monkeypatch):
     replace_handle_task(monkeypatch, seen.append)
     assert pick_next_task(conn, SETTINGS) is True
     assert [e.delivery_id for e in seen] == ["d-1"]
-    row = conn.execute("SELECT status, finished_at IS NOT NULL FROM inbox_events").fetchone()
+    row = conn.execute(
+        "SELECT status, finished_at IS NOT NULL FROM inbox_events"
+    ).fetchone()
     assert row == ("done", True)
 
 
@@ -162,7 +177,9 @@ def test_pick_next_task_with_empty_inbox_returns_false(conn):
     assert pick_next_task(conn, SETTINGS) is False
 
 
-def test_pick_pending_tasks_handles_every_claimable_event(database_url, conn, monkeypatch):
+def test_pick_pending_tasks_handles_every_claimable_event(
+    database_url, conn, monkeypatch
+):
     record(database_url, new_event("d-1", "i-1"), new_event("d-2", "i-2"))
     handled = []
     replace_handle_task(monkeypatch, lambda e: handled.append(e.delivery_id))
@@ -172,7 +189,9 @@ def test_pick_pending_tasks_handles_every_claimable_event(database_url, conn, mo
     assert pick_pending_tasks(conn, SETTINGS) == 0
 
 
-def test_pick_pending_tasks_keeps_going_after_a_failure(database_url, conn, monkeypatch):
+def test_pick_pending_tasks_keeps_going_after_a_failure(
+    database_url, conn, monkeypatch
+):
     record(database_url, new_event("d-1", "i-1"), new_event("d-2", "i-2"))
 
     def fail_first(event):

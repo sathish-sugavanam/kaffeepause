@@ -16,7 +16,7 @@ from psycopg import sql
 from psycopg.conninfo import make_conninfo
 
 ADMIN_URL = os.environ.get("AGENTS_TEST_ADMIN_URL")
-MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
+MIGRATIONS = Path(__file__).resolve().parent / "migrations"
 
 
 def apply_migrations(url: str) -> None:
@@ -43,7 +43,9 @@ def database_url(admin_url) -> Iterator[str]:
         yield url
     finally:
         with psycopg.connect(admin_url, autocommit=True) as conn:
-            conn.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
+            conn.execute(
+                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name))
+            )
 
 
 @pytest.fixture

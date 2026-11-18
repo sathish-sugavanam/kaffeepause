@@ -11,9 +11,7 @@ SETTINGS = WorkerSettings(
 
 def test_app_registers_both_tasks():
     app = create_app(SETTINGS)
-    assert {"app.check_pending_tasks", "app.fail_stale_tasks"} <= set(
-        app.tasks
-    )
+    assert {"app.check_pending_tasks", "app.fail_stale_tasks"} <= set(app.tasks)
 
 
 def test_beat_polls_inbox_and_ticks_expire_at_the_interval():

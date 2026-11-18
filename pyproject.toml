@@ -16,7 +16,9 @@ dependencies = [
 [dependency-groups]
 dev = [
     "httpx2==2.16.2",
+    "pre-commit==4.7.0",
     "pytest==9.2.0",
+    "ruff==0.15.0",
 ]
 
 [build-system]
@@ -29,3 +31,14 @@ exclude = ["test_*.py", "conftest.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["app"]
+
+[tool.ruff]
+target-version = "py314"
+src = ["."]
+
+[tool.ruff.lint]
+# E4/E7/E9 + F are ruff's defaults; I sorts imports (isort), UP modernises syntax, B catches likely bugs.
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]

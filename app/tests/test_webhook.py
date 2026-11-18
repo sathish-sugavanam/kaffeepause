@@ -103,7 +103,9 @@ def test_rejected_delivery_is_not_stored(client, inbox):
 
 
 def test_inbox_failure_returns_500_so_linear_retries():
-    client = TestClient(create_app(SETTINGS, inbox=BrokenInbox()), raise_server_exceptions=False)
+    client = TestClient(
+        create_app(SETTINGS, inbox=BrokenInbox()), raise_server_exceptions=False
+    )
     body = json.dumps(issue_payload()).encode()
     assert post(client, body, sign(body)).status_code == 500
 
@@ -151,7 +153,6 @@ def test_healthz(client):
     assert client.get("/healthz").text == "ok"
 
 
-
 def ignored(client, inbox, payload, event="Issue") -> bool:
     body = json.dumps(payload).encode()
     response = client.post(
@@ -169,7 +170,9 @@ def ignored(client, inbox, payload, event="Issue") -> bool:
 
 
 def test_comment_is_ignored(client, inbox):
-    payload = issue_payload(type="Comment", action="create", data={"id": "c-1", "issueId": "abc"})
+    payload = issue_payload(
+        type="Comment", action="create", data={"id": "c-1", "issueId": "abc"}
+    )
     payload.pop("updatedFrom")
     assert ignored(client, inbox, payload, event="Comment")
 
