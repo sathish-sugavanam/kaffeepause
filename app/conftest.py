@@ -1,7 +1,7 @@
 """Fixtures for the integration tests in test_postgres.py, which need a real Postgres server.
 
 Set AGENTS_TEST_ADMIN_URL to a superuser URL, for example the Compose database:
-    AGENTS_TEST_ADMIN_URL=postgresql://signal_loop:signal_loop@localhost:5432/postgres
+    AGENTS_TEST_ADMIN_URL=postgresql://postgres:postgres@localhost:5432/postgres
 Each test gets its own throwaway database with every file in migrations/ applied.
 """
 

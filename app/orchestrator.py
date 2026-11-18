@@ -151,7 +151,7 @@ def pull_request_body(task: Task, result: Result) -> str:
         f"{result.summary.strip() or 'No summary from the agent.'}\n\n"
         f"---\nLinear issue: {task.issue_id}. "
         f"Agent used {result.turns} turns, about ${result.cost_usd:.2f}.\n\n"
-        "🤖 Opened by the Signal Loop dev agent."
+        "🤖 Opened by the Kaffeepause dev agent."
     )
 
 

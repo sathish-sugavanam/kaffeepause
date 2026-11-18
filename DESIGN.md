@@ -1,4 +1,4 @@
-# Signal Loop agents: design
+# Kaffeepause: design
 
 An always-on agent system that picks up Linear issues, writes tests first, implements the change, reviews it for security, and opens a pull request against this repository.
 

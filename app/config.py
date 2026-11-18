@@ -42,7 +42,7 @@ class WorkerSettings:
     agent_env: dict[str, str] = field(default_factory=dict, repr=False)
     poll_interval_seconds: float = 2.0
     lease_seconds: float = 3600.0
-    run_image: str = "signal-loop-agents"
+    run_image: str = "kaffeepause"
     runs_volume: str = "agent_runs"
     runs_dir: str = "/runs"
     work_dir: str = "/work"

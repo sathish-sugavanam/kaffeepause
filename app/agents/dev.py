@@ -25,9 +25,9 @@ MAX_BUDGET_USD = 5.0
 TOOLS = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 AUTHOR = [
     "-c",
-    "user.name=Signal Loop Agent",
+    "user.name=Kaffeepause Agent",
     "-c",
-    "user.email=agent@signal-loop.invalid",
+    "user.email=agent@kaffeepause.invalid",
 ]
 
 INSTRUCTIONS = """\
