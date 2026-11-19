@@ -7,6 +7,7 @@ dependencies = [
     "celery[redis]==5.7.0",
     "claude-agent-sdk==0.2.183",
     "docker==7.1.0",
+    "jsonschema==4.26.0",
     "psycopg-pool==3.3.3",
     "psycopg[binary]==3.3.6",
     "pyyaml==6.0.3",
