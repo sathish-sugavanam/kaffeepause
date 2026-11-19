@@ -7,7 +7,6 @@ error, fixture blew up). The red check depends on telling them apart.
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from pathlib import Path
 
 PASSED, FAILURE, ERROR, SKIPPED = "passed", "failure", "error", "skipped"
 # When one ID shows up twice (several report files), the worst status wins.
@@ -15,28 +14,35 @@ _RANK = {PASSED: 0, SKIPPED: 1, FAILURE: 2, ERROR: 3}
 
 
 @dataclass(frozen=True)
-class TestResult:
-    __test__ = False  # not a pytest test class
-
+class Case:
     id: str
     status: str
     message: str = ""
 
 
-Results = dict[str, TestResult]
+Results = dict[str, Case]
 
 
-def test_id(classname: str, name: str) -> str:
+def case_id(classname: str, name: str) -> str:
     return f"{classname}::{name}" if classname else name
 
 
-def parse_junit(paths: list[Path]) -> Results:
+def counts(results: Results) -> dict[str, int]:
+    out = dict.fromkeys(_RANK, 0)
+    for case in results.values():
+        out[case.status] += 1
+    return out
+
+
+def parse_junit(reports: dict[str, bytes]) -> Results:
+    """Parses report files given as {name: content}. The content is untrusted:
+    the run container wrote it. ElementTree never resolves external entities."""
     results: Results = {}
-    for path in paths:
+    for name, data in sorted(reports.items()):
         try:
-            root = ET.parse(path).getroot()
+            root = ET.fromstring(data)
         except ET.ParseError as exc:
-            raise ValueError(f"{path.name} is not valid JUnit XML: {exc}") from None
+            raise ValueError(f"{name} is not valid JUnit XML: {exc}") from None
         for case in root.iter("testcase"):
             result = _case_result(case)
             seen = results.get(result.id)
@@ -45,16 +51,16 @@ def parse_junit(paths: list[Path]) -> Results:
     return results
 
 
-def _case_result(case: ET.Element) -> TestResult:
-    tid = test_id(case.get("classname", ""), case.get("name", ""))
+def _case_result(case: ET.Element) -> Case:
+    tid = case_id(case.get("classname", ""), case.get("name", ""))
     for tag, status in (("error", ERROR), ("failure", FAILURE), ("skipped", SKIPPED)):
         node = case.find(tag)
         if node is not None:
             message = " ".join(
                 part for part in (node.get("message", ""), node.text or "") if part
             )
-            return TestResult(tid, status, message.strip()[:4000])
-    return TestResult(tid, PASSED)
+            return Case(tid, status, message.strip()[:4000])
+    return Case(tid, PASSED)
 
 
 def _normalise(tid: str) -> str:

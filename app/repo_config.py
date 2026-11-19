@@ -5,6 +5,7 @@ accepted but not used yet: they need the injected runtime (build step 3), so
 today the run container is still the Kaffeepause image.
 """
 
+import re
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Any
@@ -56,6 +57,14 @@ class RepoConfig:
     base_branch: str = "main"
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     unused: tuple[str, ...] = field(default=())  # keys accepted but not acted on yet
+
+    @property
+    def junit_glob(self) -> str:
+        """The `junit` glob relative to $KP_JUNIT: `$KP_JUNIT/*.xml` -> `*.xml`."""
+        return self.junit.split("/", 1)[1]
+
+    def is_junit_report(self, name: str) -> bool:
+        return PurePosixPath(name).full_match(self.junit_glob)
 
 
 def invalid(name: str, problem: str) -> RunFailed:
@@ -109,8 +118,10 @@ def parse_repo_config(text: str | None) -> RepoConfig:
             "is required: the red check needs JUnit XML to tell a failed "
             "assertion from a crash",
         )
-    if "$KP_JUNIT" not in junit:
-        raise invalid("junit", "must point inside $KP_JUNIT")
+    if not re.match(r"^(\$KP_JUNIT|\$\{KP_JUNIT\})/.", junit) or ".." in junit.split(
+        "/"
+    ):
+        raise invalid("junit", "must be a glob inside $KP_JUNIT, e.g. $KP_JUNIT/*.xml")
 
     for name in ("stack", "base_branch"):
         if name in raw and not isinstance(raw[name], str):
