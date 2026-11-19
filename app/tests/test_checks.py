@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from app.checks import SuiteRun, baseline_check, gap_check, green_check, red_check
@@ -32,10 +30,8 @@ def run(**statuses: tuple[str, str]) -> SuiteRun:
     return SuiteRun({tid: Case(tid, s, m) for tid, (s, m) in statuses.items()})
 
 
-def test_parse_junit_statuses(tmp_path: Path):
-    path = tmp_path / "unit.xml"
-    path.write_text(JUNIT)
-    results = parse_junit([path])
+def test_parse_junit_statuses():
+    results = parse_junit({"unit.xml": JUNIT.encode()})
     assert {tid: r.status for tid, r in results.items()} == {
         "tests.test_calc::test_add": PASSED,
         "tests.test_calc::test_skip": SKIPPED,
@@ -46,11 +42,15 @@ def test_parse_junit_statuses(tmp_path: Path):
     assert counts(results) == {PASSED: 1, SKIPPED: 1, FAILURE: 1, ERROR: 1}
 
 
-def test_parse_junit_rejects_garbage(tmp_path: Path):
-    path = tmp_path / "bad.xml"
-    path.write_text("<testsuite>")
-    with pytest.raises(ValueError, match="not valid JUnit XML"):
-        parse_junit([path])
+def test_parse_junit_rejects_garbage():
+    with pytest.raises(ValueError, match="bad.xml is not valid JUnit XML"):
+        parse_junit({"bad.xml": b"<testsuite>"})
+
+
+def test_parse_junit_worst_status_wins_across_reports():
+    ok = b'<testsuite><testcase classname="t" name="a"/></testsuite>'
+    bad = b'<testsuite><testcase classname="t" name="a"><error/></testcase></testsuite>'
+    assert parse_junit({"1.xml": ok, "2.xml": bad})["t::a"].status == ERROR
 
 
 @pytest.mark.parametrize(
@@ -124,8 +124,7 @@ def test_green_check():
 
 
 def test_gap_check_reports_new_failing_tests():
-    before = run(**{"t::add": (PASSED, "")})
     after = run(**{"t::add": (PASSED, ""), "t::neg": (FAILURE, "neg")})
-    outcome, new_ids = gap_check(before, after)
+    outcome, new_ids = gap_check({"t::add"}, after)
     assert new_ids == {"t::neg"}
     assert not outcome.ok and "t::neg failed: neg" in outcome.problems[0]

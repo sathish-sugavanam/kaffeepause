@@ -7,7 +7,6 @@ error, fixture blew up). The red check depends on telling them apart.
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from pathlib import Path
 
 PASSED, FAILURE, ERROR, SKIPPED = "passed", "failure", "error", "skipped"
 # When one ID shows up twice (several report files), the worst status wins.
@@ -35,13 +34,15 @@ def counts(results: Results) -> dict[str, int]:
     return out
 
 
-def parse_junit(paths: list[Path]) -> Results:
+def parse_junit(reports: dict[str, bytes]) -> Results:
+    """Parses report files given as {name: content}. The content is untrusted:
+    the run container wrote it. ElementTree never resolves external entities."""
     results: Results = {}
-    for path in paths:
+    for name, data in sorted(reports.items()):
         try:
-            root = ET.parse(path).getroot()
+            root = ET.fromstring(data)
         except ET.ParseError as exc:
-            raise ValueError(f"{path.name} is not valid JUnit XML: {exc}") from None
+            raise ValueError(f"{name} is not valid JUnit XML: {exc}") from None
         for case in root.iter("testcase"):
             result = _case_result(case)
             seen = results.get(result.id)

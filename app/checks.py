@@ -112,8 +112,11 @@ def green_check(
     return CheckOutcome(not problems, problems)
 
 
-def gap_check(before: SuiteRun, run: SuiteRun) -> tuple[CheckOutcome, set[str]]:
-    """The tester's gap-review tests must pass against the coder's code."""
-    new_ids = set(run.results) - set(before.results)
+def gap_check(known_ids: set[str], run: SuiteRun) -> tuple[CheckOutcome, set[str]]:
+    """The tester's gap-review tests must pass against the coder's code.
+
+    `known_ids` are the tests that existed before the review; the rest are new.
+    """
+    new_ids = set(run.results) - known_ids
     problems = list(run.problems) + _broken(run)
     return CheckOutcome(not problems, problems), new_ids
