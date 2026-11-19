@@ -45,9 +45,34 @@ def test_openrouter_settings_reach_the_run_container(monkeypatch):
         monkeypatch.setenv(name, value)
     monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-be-blanked")
-    assert load_worker_settings().agent_env == {
+    settings = load_worker_settings()
+    assert settings.agent_env == {
         "ANTHROPIC_AUTH_TOKEN": "or-secret",
         "ANTHROPIC_BASE_URL": "https://openrouter.ai/api",
-        "DEV_AGENT_MODEL": "nvidia/nemotron-3.5-lightning:free",
         "ANTHROPIC_API_KEY": "",
     }
+    # Models travel in each step's input.json, not the container env.
+    # DEV_AGENT_MODEL is the v0 name for the coder's model.
+    assert settings.models == {"coder": "nvidia/nemotron-3.5-lightning:free"}
+
+
+def test_per_agent_models_and_budget(monkeypatch):
+    for name, value in {
+        "DATABASE_URL": "postgresql://a:pw@db/agents",
+        "REDIS_URL": "redis://redis:6379/0",
+        "GITHUB_TOKEN": "ghp-secret",
+        "GITHUB_REPO": "o/r",
+        "ANTHROPIC_API_KEY": "sk",
+        "TESTER_MODEL": "claude-haiku-5-5",
+        "CODER_MODEL": "claude-opus-5-5",
+        "DEV_AGENT_MODEL": "ignored-when-CODER_MODEL-is-set",
+        "RUN_BUDGET_USD": "4.5",
+    }.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("SECURITY_MODEL", raising=False)
+    settings = load_worker_settings()
+    assert settings.models == {
+        "tester": "claude-haiku-5-5",
+        "coder": "claude-opus-5-5",
+    }
+    assert settings.run_budget_usd == 4.5
