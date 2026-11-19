@@ -26,6 +26,7 @@ from app.inbox import (
 from app.orchestrator import (
     docker_container_starter,
     github_pull_request_opener,
+    issue_reviewer,
     run_dev_task,
 )
 
@@ -41,6 +42,7 @@ def handle_task(event: InboxEvent, settings: WorkerSettings) -> None:
         settings,
         start_container=docker_container_starter(settings),
         open_pull_request=github_pull_request_opener(settings),
+        review_issue=issue_reviewer(settings),
     )
 
 

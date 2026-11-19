@@ -53,8 +53,9 @@ security: scanners + review ──▶ blocking finding? ──▶ back to the co
 - **Scope:** the tester writes only `tester_owned` files, and the coder never changes them. Nobody touches protected paths. Hooks deny out-of-scope writes, and the worker checks again on the commits themselves. A violation fails the run (`TESTER_FILES_CHANGED`, `PROTECTED_PATH`).
 - **Budget:** one budget per run (`RUN_BUDGET_USD`, default $10). Each session gets what is left, and the run fails with `BUDGET_EXCEEDED` when it runs out. Turn caps: tester 60, coder 80, security 30.
 - Issues need acceptance criteria: an "Acceptance criteria" list, or checkboxes. Bugs (label `Bug`) may use "Expected behaviour" instead. Without them the run fails with `NO_CRITERIA`.
+- **Readiness gate (optional):** with `TYPESAFE_API_KEY` set, the worker asks Jev (TypeSafe's typed-answer model) about each issue before any agent runs. It refuses criteria a test can't check, or a change too large for one run, with `ISSUE_NOT_READY`. It also treats an unlabelled issue as a bug when Jev is at least 90% sure. If Jev is unreachable, the run goes ahead without the gate.
 
-Code map: `app/pipeline.py` (routing), `app/checks.py` and `app/junit.py` (checks), `app/scanners.py`, `app/agents/` (roles, hooks, the step contract, verdict schemas, the in-container session, skills in `plugin/skills/`), `app/container.py` (the run container and its file API), `app/git.py`, `app/report.py` (PR body), `app/orchestrator.py` (clone, push, PR).
+Code map: `app/pipeline.py` (routing), `app/checks.py` and `app/junit.py` (checks), `app/scanners.py`, `app/agents/` (roles, hooks, the step contract, verdict schemas, the in-container session, skills in `plugin/skills/`), `app/container.py` (the run container and its file API), `app/git.py`, `app/report.py` (PR body), `app/intake.py` (readiness gate), `app/orchestrator.py` (clone, push, PR).
 
 ### Repository contract: `.kaffeepause.yml`
 

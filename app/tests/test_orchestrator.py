@@ -19,7 +19,8 @@ from app.container import LocalRunContainer
 from app.errors import ErrorCode, RunFailed
 from app.helpers.github import git_auth_env, remote_url
 from app.inbox import InboxEvent
-from app.orchestrator import get_task_from_event, run_dev_task
+from app.intake import IssueReview
+from app.orchestrator import get_task_from_event, issue_reviewer, run_dev_task
 
 PY = sys.executable
 SECRET = "sk-ant-this-is-the-run-containers-key"
@@ -200,7 +201,7 @@ NO_GAPS = ("tester", writes({}, make_tester_verdict()))
 CLEAN = ("security", writes({}, security_verdict()))
 
 
-def run(remote, settings, agents, ev=None, opened=None):
+def run(remote, settings, agents, ev=None, opened=None, review=None):
     def open_pr(**kwargs):
         if opened is None:
             pytest.fail("must not open a PR")
@@ -215,13 +216,14 @@ def run(remote, settings, agents, ev=None, opened=None):
         ),
         open_pull_request=open_pr,
         run_agent=agents,
+        review_issue=review,
         remote=str(remote),
     )
 
 
-def fails_with(code, remote, settings, agents, ev=None) -> RunFailed:
+def fails_with(code, remote, settings, agents, ev=None, review=None) -> RunFailed:
     with pytest.raises(RunFailed) as info:
-        run(remote, settings, agents, ev)
+        run(remote, settings, agents, ev, review=review)
     assert info.value.code == code, info.value
     assert "agent/" not in git(remote, "branch", "--list")
     return info.value
@@ -288,6 +290,91 @@ def test_no_criteria_spends_nothing(remote, settings):
         ErrorCode.NO_CRITERIA, remote, settings, agents, ev=event("Make it better.")
     )
     assert agents.inputs == []
+
+
+READY = IssueReview(testable=0.95, large=0.05, bug=0.0)
+BUG_REPORT = """\
+calc.mul is missing.
+
+Steps to reproduce:
+- Call calc.mul(2, 3)
+
+Expected behaviour:
+- mul(2, 3) returns 6
+"""
+
+
+def reviewer(review, seen=None):
+    def review_issue(task):
+        if seen is not None:
+            seen.append(task)
+        return review
+
+    return review_issue
+
+
+def test_ready_issue_runs_as_usual(remote, settings):
+    agents = Agents(RED_TESTER, GOOD_CODER, NO_GAPS, CLEAN)
+    seen = []
+    run(remote, settings, agents, review=reviewer(READY, seen), opened={})
+    assert agents.roles == ["tester", "coder", "tester", "security"]
+    assert seen[0].criteria == ("mul(2, 3) returns 6",)
+
+
+def test_untestable_issue_spends_nothing(remote, settings):
+    agents = Agents()
+    review = IssueReview(testable=0.1, large=0.0, bug=0.0)
+    err = fails_with(
+        ErrorCode.ISSUE_NOT_READY, remote, settings, agents, review=reviewer(review)
+    )
+    assert "test can check" in err.message
+    assert agents.inputs == []
+
+
+def test_oversized_issue_spends_nothing(remote, settings):
+    agents = Agents()
+    review = IssueReview(testable=0.9, large=0.8, bug=0.0)
+    err = fails_with(
+        ErrorCode.ISSUE_NOT_READY, remote, settings, agents, review=reviewer(review)
+    )
+    assert "too large" in err.message
+    assert agents.inputs == []
+
+
+def test_no_criteria_wins_over_the_review(remote, settings):
+    review = IssueReview(testable=0.0, large=1.0, bug=0.0)
+    fails_with(
+        ErrorCode.NO_CRITERIA,
+        remote,
+        settings,
+        Agents(),
+        ev=event("Make it better."),
+        review=reviewer(review),
+    )
+
+
+def test_unlabelled_bug_report_runs_as_a_bug(remote, settings):
+    agents = Agents(RED_TESTER, GOOD_CODER, NO_GAPS, CLEAN)
+    review = IssueReview(testable=0.9, large=0.0, bug=0.97)
+    run(
+        remote,
+        settings,
+        agents,
+        ev=event(BUG_REPORT),
+        review=reviewer(review),
+        opened={},
+    )
+    assert agents.inputs[0].skills == ("kaffeepause:reproduce-bug",)
+
+
+def test_unlabelled_bug_report_without_jev_has_no_criteria(remote, settings):
+    fails_with(ErrorCode.NO_CRITERIA, remote, settings, Agents(), ev=event(BUG_REPORT))
+
+
+def test_jev_outage_runs_without_the_gate(remote, settings):
+    agents = Agents(RED_TESTER, GOOD_CODER, NO_GAPS, CLEAN)
+    run(remote, settings, agents, review=reviewer(None), opened={})
+    assert agents.roles == ["tester", "coder", "tester", "security"]
 
 
 def test_missing_config(tmp_path, settings):
@@ -511,3 +598,11 @@ def test_git_auth_travels_in_the_environment_only():
     header = env["GIT_CONFIG_VALUE_0"].removeprefix("AUTHORIZATION: basic ")
     assert base64.b64decode(header) == b"x-access-token:ghp_example_token_value"
     assert remote_url("o/r") == "https://github.com/o/r.git"  # no token in the URL
+
+
+def test_gate_is_off_without_a_typesafe_key(settings):
+    assert issue_reviewer(settings) is None
+    on = WorkerSettings(
+        database_url="unused", broker_url="memory://", typesafe_api_key="k"
+    )
+    assert callable(issue_reviewer(on))

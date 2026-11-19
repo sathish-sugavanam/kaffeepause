@@ -4,6 +4,8 @@
    environment (helpers.github.git_auth_env). Read `.kaffeepause.yml` and
    `CLAUDE.md` from the base branch there.
 2. Refuse issues without acceptance criteria, before any tokens are spent.
+   When a TypeSafe key is set, Jev also judges whether the criteria are
+   testable and the change small enough (app.intake).
 3. Start one run container, copy a token-free clone into it, and drive the
    tester → coder → security pipeline (app.pipeline) through it.
 4. Check protected paths and credentials on the final commit, push, and open
@@ -27,6 +29,7 @@ from app.errors import ErrorCode, RunFailed
 from app.git import GitError, git, show_file
 from app.helpers.github import create_pull_request, git_auth_env, remote_url
 from app.inbox import InboxEvent
+from app.intake import ReviewIssue, jev_reviewer, readiness_problem, with_kind
 from app.pipeline import AgentRunner, Pipeline
 from app.repo_config import FILENAME, RepoConfig, parse_repo_config
 from app.report import Redactor, pull_request_body
@@ -88,12 +91,15 @@ def run_dev_task(
     start_container: StartContainer,
     open_pull_request: OpenPullRequest,
     run_agent: AgentRunner | None = None,
+    review_issue: ReviewIssue | None = None,
     remote: str | None = None,
 ) -> str:
     task = get_task_from_event(event)
     remote = remote or remote_url(settings.github_repo)
     auth = git_auth_env(settings.github_token) if settings.github_token else {}
-    redact = Redactor([*settings.agent_env.values(), settings.github_token])
+    redact = Redactor(
+        [*settings.agent_env.values(), settings.github_token, settings.typesafe_api_key]
+    )
     work = Path(settings.work_dir)
     private, seed = work / f"task-{event.id}", work / f"task-{event.id}-seed"
     for folder in (private, seed):
@@ -106,12 +112,17 @@ def run_dev_task(
         except GitError:
             raise RunFailed(ErrorCode.UPSTREAM_API, "git clone failed") from None
         config = read_config(private)
+        review = review_issue(task) if review_issue else None
+        if review:
+            task = with_kind(task, review)
         if not task.criteria:
             raise RunFailed(
                 ErrorCode.NO_CRITERIA,
                 "the issue has no acceptance criteria (an 'Acceptance criteria' "
                 "list or checkboxes)",
             )
+        if review and (problem := readiness_problem(review)):
+            raise RunFailed(ErrorCode.ISSUE_NOT_READY, problem)
         git(work, "clone", "--quiet", str(private), str(seed))
         git(seed, "checkout", "--quiet", "-b", task.branch)
 
@@ -194,3 +205,9 @@ def github_pull_request_opener(settings: WorkerSettings) -> OpenPullRequest:
         )
 
     return open_pr
+
+
+def issue_reviewer(settings: WorkerSettings) -> ReviewIssue | None:
+    if not settings.typesafe_api_key:
+        return None
+    return jev_reviewer(settings.typesafe_api_key, settings.typesafe_model)
