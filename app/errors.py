@@ -1,0 +1,29 @@
+"""The closed list of run error codes (PRD section 4), and the exception that carries one."""
+
+from enum import StrEnum
+
+
+class ErrorCode(StrEnum):
+    NO_CRITERIA = "NO_CRITERIA"
+    CONFIG_INVALID = "CONFIG_INVALID"
+    BASELINE_RED = "BASELINE_RED"
+    RED_CHECK_FAILED = "RED_CHECK_FAILED"
+    TESTER_FILES_CHANGED = "TESTER_FILES_CHANGED"
+    PROTECTED_PATH = "PROTECTED_PATH"
+    BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
+    BAD_VERDICT = "BAD_VERDICT"
+    CANNOT_REPRODUCE = "CANNOT_REPRODUCE"
+    NO_WORKER = "NO_WORKER"
+    LEASE_LOST = "LEASE_LOST"
+    PUSH_FAILED = "PUSH_FAILED"
+    UPSTREAM_API = "UPSTREAM_API"
+    UNKNOWN = "UNKNOWN"
+
+
+class RunFailed(RuntimeError):
+    """Ends a run with one error code. The message must never contain a secret."""
+
+    def __init__(self, code: ErrorCode, message: str = "") -> None:
+        self.code = code
+        self.message = message
+        super().__init__(f"{code}: {message}" if message else str(code))
