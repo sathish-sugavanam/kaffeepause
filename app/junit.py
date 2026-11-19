@@ -15,19 +15,24 @@ _RANK = {PASSED: 0, SKIPPED: 1, FAILURE: 2, ERROR: 3}
 
 
 @dataclass(frozen=True)
-class TestResult:
-    __test__ = False  # not a pytest test class
-
+class Case:
     id: str
     status: str
     message: str = ""
 
 
-Results = dict[str, TestResult]
+Results = dict[str, Case]
 
 
-def test_id(classname: str, name: str) -> str:
+def case_id(classname: str, name: str) -> str:
     return f"{classname}::{name}" if classname else name
+
+
+def counts(results: Results) -> dict[str, int]:
+    out = dict.fromkeys(_RANK, 0)
+    for case in results.values():
+        out[case.status] += 1
+    return out
 
 
 def parse_junit(paths: list[Path]) -> Results:
@@ -45,16 +50,16 @@ def parse_junit(paths: list[Path]) -> Results:
     return results
 
 
-def _case_result(case: ET.Element) -> TestResult:
-    tid = test_id(case.get("classname", ""), case.get("name", ""))
+def _case_result(case: ET.Element) -> Case:
+    tid = case_id(case.get("classname", ""), case.get("name", ""))
     for tag, status in (("error", ERROR), ("failure", FAILURE), ("skipped", SKIPPED)):
         node = case.find(tag)
         if node is not None:
             message = " ".join(
                 part for part in (node.get("message", ""), node.text or "") if part
             )
-            return TestResult(tid, status, message.strip()[:4000])
-    return TestResult(tid, PASSED)
+            return Case(tid, status, message.strip()[:4000])
+    return Case(tid, PASSED)
 
 
 def _normalise(tid: str) -> str:

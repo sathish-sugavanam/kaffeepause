@@ -14,13 +14,16 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from app.repo_config import matches_any
+from app.agents.roles import CODER, TESTER
+from app.repo_config import RepoConfig, matches_any
 
 WRITE_TOOLS = "Write|Edit|MultiEdit|NotebookEdit"
 # Chaining, substitution and redirection would let an allowlisted prefix run anything.
 _SHELL_META = (";", "&", "|", "`", "$(", ">", "<", "\n", "\r")
 READ_ONLY_GIT = ("git status", "git diff", "git log", "git show")
 SCANNERS = ("semgrep", "gitleaks", "osv-scanner")
+# Flags that make a "read-only" git command write files or run programs.
+_UNSAFE_GIT_FLAGS = ("--output", "--ext-diff", "--textconv", "--exec-path", "-c")
 
 
 @dataclass(frozen=True)
@@ -71,12 +74,44 @@ def bash_denial(scope: Scope, command: str) -> str | None:
         tokens = shlex.split(command)
     except ValueError:
         return "the command could not be parsed"
+    if tokens[:1] == ["git"] and any(
+        t == flag or t.startswith(flag + "=") or (flag == "-c" and t.startswith("-c"))
+        for t in tokens
+        for flag in _UNSAFE_GIT_FLAGS
+    ):
+        return "git flags that write files or run programs are not allowed"
     for prefix in scope.bash_prefixes:
         want = shlex.split(prefix)
         if tokens[: len(want)] == want:
             return None
     allowed = ", ".join(f"`{p}`" for p in scope.bash_prefixes)
     return f"only these commands are allowed: {allowed}"
+
+
+def scope_for(role: str, repo_dir: str, config: RepoConfig) -> Scope:
+    """What each role may write and run. The worker checks the same rules again
+    on the commits, so this is the agent-facing half of one policy."""
+    if role == TESTER:
+        prefixes = (command_prefix(c) for c in config.test.values())
+        return Scope(
+            repo_dir,
+            write_allow=config.tester_owned,
+            write_deny=config.protected,
+            bash_prefixes=tuple(p for p in prefixes if p),
+        )
+    if role == CODER:
+        return Scope(
+            repo_dir,
+            write_allow=None,
+            write_deny=config.tester_owned + config.protected,
+            bash_prefixes=None,
+        )
+    return Scope(
+        repo_dir,
+        write_allow=(),
+        write_deny=("**",),
+        bash_prefixes=SCANNERS + READ_ONLY_GIT,
+    )
 
 
 def command_prefix(command: str) -> str:
