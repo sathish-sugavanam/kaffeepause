@@ -56,24 +56,44 @@ Code map: `app/pipeline.py` (routing), `app/checks.py` and `app/junit.py` (check
 
 ### Repository contract: `.kaffeepause.yml`
 
-Each target repository needs this file on its base branch. JUnit XML is required, because exit codes can't tell a failed assertion from a crash.
+The file lives in each **target repository** (the one the agents open pull requests against), not in this repo. Put it at the repository root, on the base branch.
+
+- The worker always reads it from the base branch, never from the agent's branch, so an agent can't change the rules of its own run.
+- The file is always protected: an agent that edits it fails the run with `PROTECTED_PATH`.
+- If the file is missing or invalid, the run fails with `CONFIG_INVALID`, and the error names the field.
 
 ```yaml
-version: 1
-stack: django                 # picks the security-review pack: django, express, rails, spring, go-net-http
-setup: ["uv sync"]
-test:                         # one command, or named layers
+version: 1                     # required, must be 1
+stack: django                  # picks the security-review pack
+setup: ["uv sync"]             # run once, before the baseline tests
+test:                          # required: one command, or named layers
   unit: "uv run pytest -m unit --junitxml=$KP_JUNIT/unit.xml"
   integration: "uv run pytest -m integration --junitxml=$KP_JUNIT/integration.xml"
-junit: "$KP_JUNIT/*.xml"
+junit: "$KP_JUNIT/*.xml"       # required: where the test commands write JUnit XML
 lint: ["uv run ruff check", "uv run ruff format --check"]
 tester_owned: ["**/tests/**", "**/test_*.py", "**/conftest.py"]
-protected: ["compose.yaml"]   # plus .kaffeepause.yml, .github/** and .claude/**, always
+protected: ["compose.yaml"]    # added to the always-protected paths
 base_branch: main
-timeout_seconds: 900          # per command
+timeout_seconds: 900           # per command
 ```
 
-`environment` and `services` are accepted but not used yet. Until the injected runtime lands, commands run in the Kaffeepause image, so the repo's toolchain has to work there.
+| Field | Required | What it does | Default |
+| --- | --- | --- | --- |
+| `version` | yes | Must be `1`. | — |
+| `test` | yes | A test command, or a map of layer name to command. Used for the baseline, red, green and gap-review checks. Layers are reported separately. | — |
+| `junit` | yes | A glob for the JUnit XML the test commands write. It must start with `$KP_JUNIT/`; the worker sets `KP_JUNIT` to a fresh folder for every run. JUnit is required because exit codes can't tell a failed assertion from a crash. | — |
+| `stack` | no | Picks the security-review pack: `django`, `express`, `rails`, `spring` or `go-net-http`. | general checklist only |
+| `setup` | no | Commands run before the baseline tests. A failure ends the run with `BASELINE_RED`. | none |
+| `lint` | no | Commands that must exit 0 for the green check to pass. | none |
+| `tester_owned` | no | Files only the tester may write. The coder may never change them. | `**/test/**`, `**/tests/**`, `**/__tests__/**`, `**/*_test.*`, `**/*.test.*`, `**/*_spec.*`, `**/test_*.*` |
+| `protected` | no | Paths no agent may touch. `.kaffeepause.yml`, `.github/**` and `.claude/**` are always protected. | just those three |
+| `base_branch` | no | The branch the config is read from and pull requests target. | `main` |
+| `timeout_seconds` | no | Time limit for each command. Hitting it counts as a failure. | `900` (15 minutes) |
+| `environment`, `services` | no | Accepted but not used yet (see below). | — |
+
+Any other key is rejected.
+
+Until the injected runtime lands (PRD build step 3), commands run in the Kaffeepause image (Python 3.14 with `uv`), not the repo's own image, and `environment` and `services` are ignored. A Python repo works as is. A Node, Go or other repo's commands won't find their toolchain yet.
 
 ## Development
 
