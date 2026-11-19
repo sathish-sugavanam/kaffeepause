@@ -16,6 +16,9 @@ class ErrorCode(StrEnum):
     NO_WORKER = "NO_WORKER"
     LEASE_LOST = "LEASE_LOST"
     PUSH_FAILED = "PUSH_FAILED"
+    # Not in the PRD's list: the change or PR text contains a credential the
+    # run container held. Checked by exact value before anything is pushed.
+    SECRET_IN_CHANGE = "SECRET_IN_CHANGE"
     UPSTREAM_API = "UPSTREAM_API"
     UNKNOWN = "UNKNOWN"
 
