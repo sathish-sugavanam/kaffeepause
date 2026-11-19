@@ -5,7 +5,8 @@ Postgres stays the queue. Celery beat fires two periodic tasks:
 - fail_stale_tasks fails tasks whose worker died mid-run.
 Celery keeps no results; each event's outcome lives in its inbox row.
 
-Each task is one dev run (see dev_run): the agent changes the code, the worker opens a PR.
+Each task is one agent run (see app.orchestrator and app.pipeline): tester, coder and
+security agents change the code, the worker opens a PR.
 """
 
 import logging
@@ -23,7 +24,7 @@ from app.inbox import (
     mark_failed,
 )
 from app.orchestrator import (
-    docker_run_container,
+    docker_container_starter,
     github_pull_request_opener,
     run_dev_task,
 )
@@ -34,11 +35,11 @@ STALE_CHECK_INTERVAL_SECONDS = 300.0
 
 
 def handle_task(event: InboxEvent, settings: WorkerSettings) -> None:
-    log.info("handling task=%s issue=%s: starting dev run", event.id, event.issue_id)
+    log.info("handling task=%s issue=%s: starting agent run", event.id, event.issue_id)
     run_dev_task(
         event,
         settings,
-        run_container=docker_run_container(settings),
+        start_container=docker_container_starter(settings),
         open_pull_request=github_pull_request_opener(settings),
     )
 
