@@ -531,6 +531,7 @@ dependencies = [
     { name = "docker" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg-pool" },
+    { name = "pyyaml" },
     { name = "starlette" },
     { name = "uvicorn" },
 ]
@@ -550,6 +551,7 @@ requires-dist = [
     { name = "docker", specifier = "==7.1.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.6" },
     { name = "psycopg-pool", specifier = "==3.3.3" },
+    { name = "pyyaml", specifier = "==6.0.3" },
     { name = "starlette", specifier = "==1.10.0" },
     { name = "uvicorn", specifier = "==0.54.0" },
 ]
