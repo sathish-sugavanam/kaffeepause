@@ -34,6 +34,8 @@ def test_valid_config():
     assert config.base_branch == "main"
     assert config.timeout_seconds == 900
     assert config.unused == ("environment",)
+    assert config.junit_glob == "*.xml"
+    assert config.is_junit_report("unit.xml") and not config.is_junit_report("x.txt")
     # The harness's own paths are always protected, plus the repo's.
     assert config.protected == (
         ".kaffeepause.yml",
@@ -62,6 +64,8 @@ def test_junit_is_required():
         ("version: 2\ntest: t\njunit: $KP_JUNIT/x", "`version`"),
         ("version: 1\njunit: $KP_JUNIT/x", "`test`"),
         ("version: 1\ntest: t\njunit: out/*.xml", "`junit`"),
+        ("version: 1\ntest: t\njunit: out/$KP_JUNIT/*.xml", "`junit`"),
+        ("version: 1\ntest: t\njunit: $KP_JUNIT/../../etc/*", "`junit`"),
         ("version: 1\ntest: t\njunit: $KP_JUNIT/x\nlint: [1]", "`lint`"),
         ("version: 1\ntest: t\njunit: $KP_JUNIT/x\nsurprise: 1", "`surprise`"),
         ("version: 1\ntest: t\njunit: $KP_JUNIT/x\ntimeout_seconds: 0", "timeout"),
