@@ -61,9 +61,7 @@ class WorkerSettings:
     poll_interval_seconds: float = 2.0
     lease_seconds: float = 3600.0
     run_image: str = "kaffeepause"
-    runs_volume: str = "agent_runs"
-    runs_dir: str = "/runs"
-    work_dir: str = "/work"
+    work_dir: str = "/work"  # the worker's private clones; never shared
 
 
 def load_webhook_settings() -> WebhookSettings:

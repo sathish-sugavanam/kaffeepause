@@ -1,13 +1,13 @@
 """One run, driven by the worker: issue in, pull request out.
 
-1. Clone the repository into a private folder, with the token. Read
-   `.kaffeepause.yml` and `CLAUDE.md` from the base branch there.
+1. Clone the repository into a private folder. The token travels only in the
+   environment (helpers.github.git_auth_env). Read `.kaffeepause.yml` and
+   `CLAUDE.md` from the base branch there.
 2. Refuse issues without acceptance criteria, before any tokens are spent.
-3. Clone the private copy into the shared run folder, without the token.
-4. Start one run container and drive the tester → coder → security pipeline
-   (app.pipeline) through it.
-5. Check protected paths on the final commit, push, and open the PR, as a
-   draft when open items are left.
+3. Start one run container, copy a token-free clone into it, and drive the
+   tester → coder → security pipeline (app.pipeline) through it.
+4. Check protected paths and credentials on the final commit, push, and open
+   the PR, as a draft when open items are left.
 
 The agent's working copy is never used for push or for decisions: its hooks
 and git config are the agent's to change, so the worker only reads bundles.
@@ -16,7 +16,6 @@ and git config are the agent's to change, so the worker only reads bundles.
 import logging
 import re
 import shutil
-import subprocess
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from pathlib import Path
@@ -25,15 +24,17 @@ from typing import Any
 from app.config import WorkerSettings
 from app.container import RunContainer, docker_run_container
 from app.errors import ErrorCode, RunFailed
-from app.helpers.github import authed_remote_url, create_pull_request
+from app.git import GitError, git, show_file
+from app.helpers.github import create_pull_request, git_auth_env, remote_url
 from app.inbox import InboxEvent
-from app.pipeline import AgentRunner, Pipeline, PipelineResult
-from app.repo_config import FILENAME, parse_repo_config
+from app.pipeline import AgentRunner, Pipeline
+from app.repo_config import FILENAME, RepoConfig, parse_repo_config
+from app.report import Redactor, pull_request_body
 from app.task import Task, acceptance_criteria, issue_kind
 
 log = logging.getLogger("app.orchestrator")
 
-StartContainer = Callable[[Path], AbstractContextManager[RunContainer]]
+StartContainer = Callable[[], AbstractContextManager[RunContainer]]
 OpenPullRequest = Callable[..., str]
 
 
@@ -60,22 +61,24 @@ def get_task_from_event(event: InboxEvent) -> Task:
     )
 
 
-def git(repo: Path, *args: str) -> str:
-    # Hooks are off for every git call the worker makes.
-    return subprocess.run(
-        ["git", "-c", "core.hooksPath=/dev/null", *args],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-
-
-def show_file(repo: Path, ref: str, path: str) -> str | None:
-    proc = subprocess.run(
-        ["git", "show", f"{ref}:{path}"], cwd=repo, capture_output=True, text=True
-    )
-    return proc.stdout if proc.returncode == 0 else None
+def read_config(private: Path) -> RepoConfig:
+    """The config on the real base branch is the one that counts."""
+    config = parse_repo_config(show_file(private, "HEAD", FILENAME))
+    if config.base_branch != git(private, "rev-parse", "--abbrev-ref", "HEAD").strip():
+        try:
+            git(private, "checkout", "--quiet", "-B", config.base_branch,
+                f"origin/{config.base_branch}")  # fmt: skip
+        except GitError:
+            raise RunFailed(
+                ErrorCode.CONFIG_INVALID,
+                f"{FILENAME}: base_branch `{config.base_branch}` does not exist",
+            ) from None
+        config = parse_repo_config(show_file(private, "HEAD", FILENAME))
+    if config.unused:
+        log.warning(
+            "%s: %s not supported yet, ignored", FILENAME, ", ".join(config.unused)
+        )
+    return config
 
 
 def run_dev_task(
@@ -85,72 +88,74 @@ def run_dev_task(
     start_container: StartContainer,
     open_pull_request: OpenPullRequest,
     run_agent: AgentRunner | None = None,
-    remote_url: str | None = None,
+    remote: str | None = None,
 ) -> str:
     task = get_task_from_event(event)
-    remote = remote_url or authed_remote_url(
-        settings.github_token, settings.github_repo
-    )
-    private = Path(settings.work_dir) / f"task-{event.id}"
-    run_dir = Path(settings.runs_dir) / f"task-{event.id}"
-    for folder in (private, run_dir):
+    remote = remote or remote_url(settings.github_repo)
+    auth = git_auth_env(settings.github_token) if settings.github_token else {}
+    redact = Redactor([*settings.agent_env.values(), settings.github_token])
+    work = Path(settings.work_dir)
+    private, seed = work / f"task-{event.id}", work / f"task-{event.id}-seed"
+    for folder in (private, seed):
         shutil.rmtree(folder, ignore_errors=True)
-    private.parent.mkdir(parents=True, exist_ok=True)
-    run_dir.mkdir(parents=True)
+    work.mkdir(parents=True, exist_ok=True)
 
     try:
         try:
-            subprocess.run(
-                ["git", "clone", "--quiet", remote, str(private)],
-                check=True,
-                capture_output=True,
-            )
-        except subprocess.CalledProcessError:
+            git(work, "clone", "--quiet", remote, str(private), env=auth)
+        except GitError:
             raise RunFailed(ErrorCode.UPSTREAM_API, "git clone failed") from None
-        config = parse_repo_config(show_file(private, "HEAD", FILENAME))
-        current = git(private, "rev-parse", "--abbrev-ref", "HEAD").strip()
-        if config.base_branch != current:
-            # The config on the real base branch is the one that counts.
-            git(private, "checkout", "--quiet", "-B", config.base_branch,
-                f"origin/{config.base_branch}")  # fmt: skip
-            config = parse_repo_config(show_file(private, "HEAD", FILENAME))
-        if config.unused:
-            log.warning(
-                "%s: %s not supported yet, ignored", FILENAME, ", ".join(config.unused)
-            )
+        config = read_config(private)
         if not task.criteria:
             raise RunFailed(
                 ErrorCode.NO_CRITERIA,
                 "the issue has no acceptance criteria (an 'Acceptance criteria' "
                 "list or checkboxes)",
             )
-
-        git(run_dir, "clone", "--quiet", str(private), "repo")
-        git(run_dir / "repo", "checkout", "--quiet", "-b", task.branch)
+        git(work, "clone", "--quiet", str(private), str(seed))
+        git(seed, "checkout", "--quiet", "-b", task.branch)
 
         log.info("starting run for %s on %s", task.issue_id, task.branch)
-        with start_container(run_dir) as container:
-            pipeline = Pipeline(
-                task=task,
-                config=config,
-                run_dir=run_dir,
-                private=private,
-                container=container,
-                models=settings.models,
-                budget_usd=settings.run_budget_usd,
-                claude_md=show_file(private, "HEAD", "CLAUDE.md") or "",
-                run_agent=run_agent,
-            )
-            result = pipeline.run()
+        try:
+            with start_container() as container:
+                container.put_tree(seed, f"{container.workdir}/repo")
+                pipeline = Pipeline(
+                    task=task,
+                    config=config,
+                    private=private,
+                    container=container,
+                    models=settings.models,
+                    budget_usd=settings.run_budget_usd,
+                    claude_md=show_file(private, "HEAD", "CLAUDE.md") or "",
+                    run_agent=run_agent,
+                )
+                result = pipeline.run()
+        except RunFailed as exc:
+            # Failure text quotes test output and verdicts, which an agent controls.
+            raise RunFailed(exc.code, redact(exc.message)) from None
 
         if result.head == pipeline.base:
             raise RunFailed(ErrorCode.UNKNOWN, "the run produced no commits")
         pipeline.check_protected(result.head)
+        span = f"{pipeline.base}..{result.head}"
+        if redact.found_in(
+            git(private, "diff", span) + git(private, "log", "--format=%B", span)
+        ):
+            raise RunFailed(
+                ErrorCode.SECRET_IN_CHANGE,
+                "the change contains a credential from the run container; not pushed",
+            )
         git(private, "branch", "--force", task.branch, result.head)
         try:
-            git(private, "push", "--quiet", remote, f"{task.branch}:{task.branch}")
-        except subprocess.CalledProcessError as exc:
-            # Never put exc in the message: its command line holds the token.
+            git(
+                private,
+                "push",
+                "--quiet",
+                remote,
+                f"{task.branch}:{task.branch}",
+                env=auth,
+            )
+        except GitError as exc:
             raise RunFailed(
                 ErrorCode.PUSH_FAILED, f"git push exited {exc.returncode}"
             ) from None
@@ -158,7 +163,7 @@ def run_dev_task(
             head=task.branch,
             base=config.base_branch,
             title=f"{task.issue_id}: {task.title}",
-            body=pull_request_body(task, result),
+            body=pull_request_body(task, result, redact),
             draft=not result.ready,
         )
         log.info(
@@ -171,80 +176,13 @@ def run_dev_task(
         )
         return url
     finally:
-        shutil.rmtree(private, ignore_errors=True)
-        shutil.rmtree(run_dir, ignore_errors=True)
-
-
-def _cell(text: str) -> str:
-    return text.replace("|", "\\|").replace("\n", " ").strip()
-
-
-def pull_request_body(task: Task, result: PipelineResult) -> str:
-    parts: list[str] = []
-    if not result.ready:
-        parts.append(
-            "> [!WARNING]\n> Draft: the harness ran out of feedback returns with "
-            "these items still open.\n\n"
-            + "\n".join(f"- {_cell(i)}" for i in result.open_items)
-        )
-    summary = (result.coder_verdict or {}).get("summary", "").strip()
-    parts.append(summary or "No summary from the coder.")
-
-    rows = "\n".join(
-        f"| {_cell(criterion)} | `{_cell(tid)}` |"
-        for tid, criterion in sorted(result.tests.items(), key=lambda kv: kv[1])
-    )
-    criteria = "\n".join(f"{i}. {_cell(c)}" for i, c in enumerate(task.criteria, 1))
-    parts.append(
-        f"### Acceptance criteria\n\n{criteria}\n\n"
-        f"| Criterion | Test |\n| --- | --- |\n{rows}"
-    )
-
-    findings = (result.security_verdict or {}).get("findings", [])
-    if findings:
-        lines = "\n".join(
-            f"| {f['severity']} | {'yes' if f['blocking'] else 'no'} | "
-            f"`{_cell(f['file'])}:{f['line']}` | {_cell(f['title'])} |"
-            for f in findings
-        )
-        sec = f"| Severity | Blocking | Where | Finding |\n| --- | --- | --- | --- |\n{lines}"
-    elif result.security_verdict is not None:
-        sec = "No findings."
-    else:
-        sec = "Not reached."
-    scans = ", ".join(
-        f"{name}: {'ran' if where.startswith('/') else where}"
-        for name, where in sorted(result.scans.items())
-    )
-    parts.append(
-        f"### Security review\n\n{sec}" + (f"\n\nScanners: {scans}." if scans else "")
-    )
-
-    steps = "\n".join(
-        f"| {s.name} | {s.model or '-'} | {s.turns or '-'} | "
-        f"{f'${s.cost_usd:.2f}' if s.kind == 'agent' else '-'} | "
-        f"{'ok' if s.ok else _cell(s.note) or 'failed'} |"
-        for s in result.steps
-    )
-    parts.append(
-        "### Run\n\n| Step | Model | Turns | Cost | Result |\n| --- | --- | --- | --- | --- |\n"
-        f"{steps}\n\nTotal: {result.turns} turns, about ${result.cost_usd:.2f}. "
-        f"Feedback returns used: {result.returns_used}."
-    )
-    parts.append(
-        f"---\nLinear issue: {task.issue_id}.\n\n🤖 Opened by the Kaffeepause agents."
-    )
-    return "\n\n".join(parts)
+        for folder in (private, seed):
+            shutil.rmtree(folder, ignore_errors=True)
 
 
 def docker_container_starter(settings: WorkerSettings) -> StartContainer:
-    def start(_run_dir: Path):
-        return docker_run_container(
-            settings.run_image,
-            env=settings.agent_env,
-            runs_volume=settings.runs_volume,
-            runs_dir=settings.runs_dir,
-        )
+    def start():
+        return docker_run_container(settings.run_image, env=settings.agent_env)
 
     return start
 

@@ -1,9 +1,26 @@
+import base64
 import json
 import urllib.request
 
 
-def authed_remote_url(token: str, repo: str) -> str:
-    return f"https://x-access-token:{token}@github.com/{repo}.git"
+def remote_url(repo: str) -> str:
+    return f"https://github.com/{repo}.git"
+
+
+def git_auth_env(token: str) -> dict[str, str]:
+    """Environment that makes git send the token to github.com.
+
+    The token travels in an environment-only config entry, so it is never in a
+    remote URL, never written to .git/config, and never in a command line that
+    could end up in an error message.
+    """
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    return {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+        "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {basic}",
+        "GIT_TERMINAL_PROMPT": "0",
+    }
 
 
 def create_pull_request(

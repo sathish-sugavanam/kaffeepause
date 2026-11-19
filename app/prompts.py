@@ -1,6 +1,7 @@
 """The prompt for each agent step. Built by the worker from trusted inputs."""
 
 from app.repo_config import RepoConfig
+from app.scanners import Scan
 from app.task import BUG, Task
 
 DIFF_LIMIT = 80_000
@@ -128,8 +129,8 @@ def coder(
     return "\n\n".join(parts) + _notes(claude_md)
 
 
-def security(task: Task, config: RepoConfig, diff: str, scans: dict[str, str]) -> str:
-    scan_lines = "\n".join(f"- {name}: {where}" for name, where in scans.items())
+def security(task: Task, config: RepoConfig, diff: str, scans: list[Scan]) -> str:
+    scan_lines = "\n".join(f"- {s.name}: {s.summary}" for s in scans)
     stack = config.stack or "not set"
     return "\n\n".join(
         [

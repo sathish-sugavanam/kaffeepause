@@ -5,7 +5,7 @@ real pytest on a tiny fixture repo, and the agents are scripted fakes that
 edit files and return verdicts, the way app.agents.session would.
 """
 
-import json
+import base64
 import subprocess
 import sys
 from contextlib import nullcontext
@@ -13,13 +13,16 @@ from pathlib import Path
 
 import pytest
 
+from app.agents.step import StepInput, StepOutput
 from app.config import WorkerSettings
 from app.container import LocalRunContainer
 from app.errors import ErrorCode, RunFailed
+from app.helpers.github import git_auth_env, remote_url
 from app.inbox import InboxEvent
 from app.orchestrator import get_task_from_event, run_dev_task
 
 PY = sys.executable
+SECRET = "sk-ant-this-is-the-run-containers-key"
 CONFIG = f"""\
 version: 1
 stack: python
@@ -112,8 +115,8 @@ def settings(tmp_path, monkeypatch) -> WorkerSettings:
     return WorkerSettings(
         database_url="unused",
         broker_url="memory://",
-        runs_dir=str(tmp_path / "runs"),
         work_dir=str(tmp_path / "work"),
+        agent_env={"ANTHROPIC_API_KEY": SECRET},
     )
 
 
@@ -156,7 +159,7 @@ BLOCKER = {
 
 
 def writes(files: dict[str, str], verdict, cost: float = 0.5):
-    def act(repo: Path, step: dict):
+    def act(repo: Path, step: StepInput):
         for name, content in files.items():
             (repo / name).parent.mkdir(parents=True, exist_ok=True)
             (repo / name).write_text(content)
@@ -170,30 +173,19 @@ class Agents:
 
     def __init__(self, *script):
         self.script = list(script)
-        self.inputs: list[dict] = []
+        self.inputs: list[StepInput] = []
 
-    def __call__(self, step_dir: Path) -> None:
-        step = json.loads((step_dir / "input.json").read_text())
+    def __call__(self, step: StepInput) -> StepOutput:
         self.inputs.append(step)
-        assert self.script, f"unexpected extra {step['role']} step"
+        assert self.script, f"unexpected extra {step.role} step"
         role, act = self.script.pop(0)
-        assert step["role"] == role, f"expected {role}, got {step['role']}"
-        verdict, cost = act(Path(step["scope"]["repo_dir"]), step)
-        (step_dir / "output.json").write_text(
-            json.dumps(
-                {
-                    "ok": True,
-                    "subtype": "success",
-                    "verdict": verdict,
-                    "turns": 3,
-                    "cost_usd": cost,
-                }
-            )
-        )
+        assert step.role == role, f"expected {role}, got {step.role}"
+        verdict, cost = act(Path(step.scope.repo_dir), step)
+        return StepOutput(subtype="success", verdict=verdict, turns=3, cost_usd=cost)
 
     @property
     def roles(self) -> list[str]:
-        return [s["role"] for s in self.inputs]
+        return [s.role for s in self.inputs]
 
 
 RED_TESTER = (
@@ -218,10 +210,12 @@ def run(remote, settings, agents, ev=None, opened=None):
     return run_dev_task(
         ev or event(),
         settings,
-        start_container=lambda run_dir: nullcontext(LocalRunContainer([PY])),
+        start_container=lambda: nullcontext(
+            LocalRunContainer(Path(settings.work_dir).parent / "container", [PY])
+        ),
         open_pull_request=open_pr,
         run_agent=agents,
-        remote_url=str(remote),
+        remote=str(remote),
     )
 
 
@@ -260,31 +254,32 @@ def test_happy_path_opens_a_ready_pr(remote, settings):
     assert git(remote, "show", f"{BRANCH}:tests/test_mul.py") == MUL_TEST
     log = git(remote, "log", "--format=%s", f"main..{BRANCH}").splitlines()
     assert log == ["SIG-7: implement Add multiply!", "SIG-7: failing tests"]
-    assert not any(Path(settings.runs_dir).iterdir())  # run folder cleaned up
+    assert not any(Path(settings.work_dir).iterdir())  # private clones cleaned up
 
 
 def test_step_inputs_carry_scope_skills_and_budget(remote, settings):
     agents = Agents(RED_TESTER, GOOD_CODER, NO_GAPS, CLEAN)
     run(remote, settings, agents, opened={})
     tester, coder, gap, security = agents.inputs
-    assert tester["skills"] == ["kaffeepause:write-failing-tests"]
-    assert tester["scope"]["write_allow"] == ["tests/**"]
-    assert tester["scope"]["bash_prefixes"][0] == f"{PY} -m pytest"
-    assert tester["max_turns"] == 60 and tester["max_budget_usd"] == 10.0
-    assert coder["model"] == "claude-opus-5-5" and coder["max_turns"] == 80
-    assert coder["max_budget_usd"] == 9.5  # $10 minus the tester's $0.50
-    assert "tests/**" in coder["scope"]["write_deny"]
-    assert coder["scope"]["bash_prefixes"] is None
-    assert gap["skills"] == ["kaffeepause:test-gap-review"]
-    assert security["scope"]["write_deny"] == ["**"]
-    assert "semgrep" in security["scope"]["bash_prefixes"]
-    assert "calc.py" in security["prompt"]  # the diff is in the prompt
+    assert tester.skills == ("kaffeepause:write-failing-tests",)
+    assert tester.scope.write_allow == ("tests/**",)
+    assert tester.scope.bash_prefixes == (f"{PY} -m pytest",)
+    assert tester.max_turns == 60 and tester.max_budget_usd == 10.0
+    assert coder.model == "claude-opus-5-5" and coder.max_turns == 80
+    assert coder.max_budget_usd == 9.5  # $10 minus the tester's $0.50
+    assert "tests/**" in coder.scope.write_deny
+    assert coder.scope.bash_prefixes is None
+    assert gap.skills == ("kaffeepause:test-gap-review",)
+    assert security.scope.write_deny == ("**",)
+    assert "semgrep" in security.scope.bash_prefixes
+    assert "calc.py" in security.prompt  # the diff is in the prompt
+    assert "gitleaks: not installed" in security.prompt
 
 
 def test_bug_uses_reproduce_skill(remote, settings):
     agents = Agents(RED_TESTER, GOOD_CODER, NO_GAPS, CLEAN)
     run(remote, settings, agents, ev=event(labels=["Bug"]), opened={})
-    assert agents.inputs[0]["skills"] == ["kaffeepause:reproduce-bug"]
+    assert agents.inputs[0].skills == ("kaffeepause:reproduce-bug",)
 
 
 def test_no_criteria_spends_nothing(remote, settings):
@@ -322,7 +317,7 @@ def test_red_check_rejects_a_crashing_test_after_one_retry(remote, settings):
     err = fails_with(ErrorCode.RED_CHECK_FAILED, remote, settings, agents)
     assert agents.roles == ["tester", "tester"]
     assert "crashed" in err.message or "not among" in err.message
-    assert "red check" in agents.inputs[1]["prompt"]  # the retry got the feedback
+    assert "red check" in agents.inputs[1].prompt  # the retry got the feedback
 
 
 def test_red_check_retry_can_succeed(remote, settings):
@@ -339,7 +334,7 @@ def test_red_check_retry_can_succeed(remote, settings):
     opened: dict = {}
     run(remote, settings, agents, opened=opened)
     assert opened["draft"] is False
-    assert "does not contain the expected text" in agents.inputs[1]["prompt"]
+    assert "does not contain the expected text" in agents.inputs[1].prompt
 
 
 def test_tester_writing_source_files_fails(remote, settings):
@@ -382,7 +377,7 @@ def test_failed_green_check_returns_to_coder(remote, settings):
     opened: dict = {}
     run(remote, settings, agents, opened=opened)
     assert agents.roles == ["tester", "coder", "coder", "tester", "security"]
-    assert "Green check failed" in agents.inputs[2]["prompt"]
+    assert "Green check failed" in agents.inputs[2].prompt
     assert opened["draft"] is False and "Feedback returns used: 1" in opened["body"]
 
 
@@ -397,7 +392,7 @@ def test_dispute_discards_the_implementation_and_reruns_the_tester(remote, setti
     opened: dict = {}
     run(remote, settings, agents, opened=opened)
     assert agents.roles == ["tester", "coder", "tester", "coder", "tester", "security"]
-    assert "disputed" in agents.inputs[2]["prompt"]
+    assert "disputed" in agents.inputs[2].prompt
     assert opened["draft"] is False and "Feedback returns used: 1" in opened["body"]
 
 
@@ -414,7 +409,7 @@ def test_gap_review_failures_go_back_to_the_coder(remote, settings):
     opened: dict = {}
     run(remote, settings, agents, opened=opened)
     assert agents.roles == ["tester", "coder", "tester", "coder", "security"]
-    assert "gap review added tests that fail" in agents.inputs[3]["prompt"]
+    assert "gap review added tests that fail" in agents.inputs[3].prompt
     assert "tests.test_neg::test_mul_negative" in opened["body"]
     assert git(remote, "show", f"{BRANCH}:tests/test_neg.py") == NEG_TEST
 
@@ -430,7 +425,7 @@ def test_unresolved_blocking_finding_opens_a_draft_pr(remote, settings):
     run(remote, settings, agents, opened=opened)
     assert opened["draft"] is True
     assert "Draft" in opened["body"] and "Unsafe thing" in opened["body"]
-    assert "Blocking security findings" in agents.inputs[4]["prompt"]
+    assert "Blocking security findings" in agents.inputs[4].prompt
 
 
 def test_blocking_finding_fixed_on_return(remote, settings):
@@ -447,7 +442,7 @@ def test_budget_runs_out(remote, settings):
     pricey_coder = ("coder", writes({"calc.py": GOOD_MUL}, coder_verdict(), cost=6))
     agents = Agents(pricey_tester, pricey_coder)
     fails_with(ErrorCode.BUDGET_EXCEEDED, remote, settings, agents)
-    assert agents.inputs[1]["max_budget_usd"] == 4.0
+    assert agents.inputs[1].max_budget_usd == 4.0
 
 
 def test_bad_verdict(remote, settings):
@@ -467,7 +462,52 @@ def test_cannot_reproduce(remote, settings):
 
 
 def test_missing_output_is_a_bad_verdict(remote, settings):
-    def crashed(step_dir: Path) -> None:
-        pass  # the session died without writing output.json
+    def crashed(step: StepInput) -> StepOutput:
+        return StepOutput.parse(None)  # the session died without output.json
 
     fails_with(ErrorCode.BAD_VERDICT, remote, settings, crashed)
+
+
+# ---- credentials and untrusted text --------------------------------------
+
+
+def test_secret_in_the_change_is_never_pushed(remote, settings):
+    leaky = ("coder", writes({"calc.py": GOOD_MUL + f"# {SECRET}\n"}, coder_verdict()))
+    agents = Agents(RED_TESTER, leaky, NO_GAPS, CLEAN)
+    err = fails_with(ErrorCode.SECRET_IN_CHANGE, remote, settings, agents)
+    assert SECRET not in str(err)
+
+
+def test_agent_text_is_redacted_and_mentions_defused(remote, settings):
+    chatty = (
+        "coder",
+        writes(
+            {"calc.py": GOOD_MUL},
+            {**coder_verdict(), "summary": f"Added mul. cc @octocat, key {SECRET}"},
+        ),
+    )
+    opened: dict = {}
+    run(remote, settings, Agents(RED_TESTER, chatty, NO_GAPS, CLEAN), opened=opened)
+    assert SECRET not in opened["body"] and "[redacted]" in opened["body"]
+    assert "@octocat" not in opened["body"] and "@\u200boctocat" in opened["body"]
+
+
+def test_failure_messages_are_redacted(remote, settings):
+    leaky_test = MUL_TEST.replace('"mul(2, 3) should be 6"', f'"{SECRET}"')
+    bad = (
+        "tester",
+        writes(
+            {"tests/test_mul.py": leaky_test},
+            make_tester_verdict(("tests/test_mul.py::test_mul", "never printed")),
+        ),
+    )
+    err = fails_with(ErrorCode.RED_CHECK_FAILED, remote, settings, Agents(bad, bad))
+    assert SECRET not in str(err)
+
+
+def test_git_auth_travels_in_the_environment_only():
+    env = git_auth_env("ghp_example_token_value")
+    assert env["GIT_CONFIG_KEY_0"] == "http.https://github.com/.extraheader"
+    header = env["GIT_CONFIG_VALUE_0"].removeprefix("AUTHORIZATION: basic ")
+    assert base64.b64decode(header) == b"x-access-token:ghp_example_token_value"
+    assert remote_url("o/r") == "https://github.com/o/r.git"  # no token in the URL
