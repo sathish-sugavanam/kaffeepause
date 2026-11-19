@@ -4,6 +4,8 @@ AI Harness for busy devs.
 
 Takes a small feature or bug fix from a Linear issue and create into a pull request. Move an issue to **Agent Ready**, and a Claude agent makes the change. 
 
+<img width="1414" height="598" alt="Screenshot 2026-11-19 at 18 22 38" src="https://github.com/user-attachments/assets/f7a26668-5327-417a-a977-6d15d9bfa1d0" />
+
 ## Setup
 
 1. Copy `.env.example` to `.env` and fill it in.
