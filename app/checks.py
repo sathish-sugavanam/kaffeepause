@@ -7,25 +7,21 @@ decision about "did this pass" is made by worker code, never by a model.
 
 from dataclasses import dataclass, field
 
-from app.junit import ERROR, FAILURE, PASSED, SKIPPED, Results, match_test_id
+from app.junit import ERROR, FAILURE, PASSED, SKIPPED, Results, counts, match_test_id
 
 
 @dataclass
-class TestRun:
+class SuiteRun:
     """One run of the repo's test command(s), every layer together."""
-
-    __test__ = False
 
     results: Results
     layers: dict[str, dict[str, int]] = field(default_factory=dict)
     problems: list[str] = field(default_factory=list)  # e.g. no JUnit, timeout
     lint_failures: list[str] = field(default_factory=list)
 
+    @property
     def counts(self) -> dict[str, int]:
-        out = {PASSED: 0, FAILURE: 0, ERROR: 0, SKIPPED: 0}
-        for r in self.results.values():
-            out[r.status] += 1
-        return out
+        return counts(self.results)
 
 
 @dataclass
@@ -37,7 +33,7 @@ class CheckOutcome:
         return "\n".join(f"- {p}" for p in self.problems)
 
 
-def _broken(run: TestRun) -> list[str]:
+def _broken(run: SuiteRun) -> list[str]:
     return [
         f"{r.id} {'crashed (<error>)' if r.status == ERROR else 'failed'}: "
         f"{r.message[:500] or '(no message)'}"
@@ -46,13 +42,13 @@ def _broken(run: TestRun) -> list[str]:
     ]
 
 
-def baseline_check(run: TestRun) -> CheckOutcome:
+def baseline_check(run: SuiteRun) -> CheckOutcome:
     problems = run.problems + _broken(run)
     return CheckOutcome(not problems, problems)
 
 
 def red_check(
-    baseline: TestRun, run: TestRun, expected: dict[str, str]
+    baseline: SuiteRun, run: SuiteRun, expected: dict[str, str]
 ) -> tuple[CheckOutcome, dict[str, str]]:
     """Every new test must fail on an assertion with the stated message.
 
@@ -103,7 +99,7 @@ def red_check(
 
 
 def green_check(
-    run: TestRun, required_ids: set[str], lint_failures: list[str]
+    run: SuiteRun, required_ids: set[str], lint_failures: list[str]
 ) -> CheckOutcome:
     """All tests pass, the tests we rely on are all still there, lint is clean."""
     problems = list(run.problems) + _broken(run)
@@ -116,7 +112,7 @@ def green_check(
     return CheckOutcome(not problems, problems)
 
 
-def gap_check(before: TestRun, run: TestRun) -> tuple[CheckOutcome, set[str]]:
+def gap_check(before: SuiteRun, run: SuiteRun) -> tuple[CheckOutcome, set[str]]:
     """The tester's gap-review tests must pass against the coder's code."""
     new_ids = set(run.results) - set(before.results)
     problems = list(run.problems) + _broken(run)

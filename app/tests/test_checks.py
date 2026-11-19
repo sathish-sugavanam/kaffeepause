@@ -2,8 +2,17 @@ from pathlib import Path
 
 import pytest
 
-from app.checks import TestRun, baseline_check, gap_check, green_check, red_check
-from app.junit import ERROR, FAILURE, PASSED, SKIPPED, match_test_id, parse_junit
+from app.checks import SuiteRun, baseline_check, gap_check, green_check, red_check
+from app.junit import (
+    ERROR,
+    FAILURE,
+    PASSED,
+    SKIPPED,
+    Case,
+    counts,
+    match_test_id,
+    parse_junit,
+)
 
 JUNIT = """<?xml version="1.0"?>
 <testsuites><testsuite name="pytest">
@@ -19,10 +28,8 @@ JUNIT = """<?xml version="1.0"?>
 """
 
 
-def run(**statuses: tuple[str, str]) -> TestRun:
-    from app.junit import TestResult
-
-    return TestRun({tid: TestResult(tid, s, m) for tid, (s, m) in statuses.items()})
+def run(**statuses: tuple[str, str]) -> SuiteRun:
+    return SuiteRun({tid: Case(tid, s, m) for tid, (s, m) in statuses.items()})
 
 
 def test_parse_junit_statuses(tmp_path: Path):
@@ -36,6 +43,7 @@ def test_parse_junit_statuses(tmp_path: Path):
         "tests.test_div::test_div": ERROR,
     }
     assert "mul(2, 3) should be 6" in results["tests.test_mul::test_mul"].message
+    assert counts(results) == {PASSED: 1, SKIPPED: 1, FAILURE: 1, ERROR: 1}
 
 
 def test_parse_junit_rejects_garbage(tmp_path: Path):

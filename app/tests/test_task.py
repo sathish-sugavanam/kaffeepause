@@ -35,3 +35,13 @@ def test_bug_can_use_expected_behaviour():
 def test_issue_kind_from_labels():
     assert issue_kind(["Backend", "Bug"]) == BUG
     assert issue_kind(["Feature"]) == FEATURE
+
+
+def test_prose_between_items_does_not_end_the_section():
+    text = "## Acceptance criteria\n- One\nSome context.\n- Two\n## Out of scope\n- Three\n"
+    assert acceptance_criteria(text) == ("One", "Two")
+
+
+def test_list_items_ending_in_a_colon_are_items_not_headings():
+    text = "Acceptance criteria:\n- Export includes:\n- A header row\n"
+    assert acceptance_criteria(text) == ("Export includes:", "A header row")
