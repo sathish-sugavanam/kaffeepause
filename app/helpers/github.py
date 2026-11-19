@@ -7,13 +7,20 @@ def authed_remote_url(token: str, repo: str) -> str:
 
 
 def create_pull_request(
-    token: str, repo: str, *, head: str, base: str, title: str, body: str
+    token: str,
+    repo: str,
+    *,
+    head: str,
+    base: str,
+    title: str,
+    body: str,
+    draft: bool = False,
 ) -> str:
-    """Opens a pull request and returns its URL."""
+    """Opens a pull request (a draft when asked) and returns its URL."""
     request = urllib.request.Request(
         f"https://api.github.com/repos/{repo}/pulls",
         data=json.dumps(
-            {"title": title, "head": head, "base": base, "body": body}
+            {"title": title, "head": head, "base": base, "body": body, "draft": draft}
         ).encode(),
         method="POST",
         headers={
