@@ -76,3 +76,30 @@ def test_per_agent_models_and_budget(monkeypatch):
         "coder": "claude-opus-5-5",
     }
     assert settings.run_budget_usd == 4.5
+
+
+def test_typesafe_key_is_optional_and_never_printed(monkeypatch):
+    for name, value in {
+        "DATABASE_URL": "postgresql://a:pw@db/agents",
+        "REDIS_URL": "redis://redis:6379/0",
+        "GITHUB_TOKEN": "ghp-secret",
+        "GITHUB_REPO": "o/r",
+        "ANTHROPIC_API_KEY": "sk",
+    }.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    monkeypatch.delenv("TYPESAFE_MODEL", raising=False)
+    settings = load_worker_settings()
+    assert (settings.typesafe_api_key, settings.typesafe_model) == ("", "jev-latest")
+
+    monkeypatch.setenv("TYPESAFE_API_KEY", "ts-secret")
+    monkeypatch.setenv("TYPESAFE_MODEL", "jev-1.13.0")
+    settings = load_worker_settings()
+    assert (settings.typesafe_api_key, settings.typesafe_model) == (
+        "ts-secret",
+        "jev-1.13.0",
+    )
+    assert "ts-secret" not in repr(settings)
+    assert (
+        "TYPESAFE_API_KEY" not in settings.agent_env
+    )  # the run container never gets it

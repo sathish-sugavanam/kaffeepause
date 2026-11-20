@@ -19,6 +19,9 @@ class ErrorCode(StrEnum):
     # Not in the PRD's list: the change or PR text contains a credential the
     # run container held. Checked by exact value before anything is pushed.
     SECRET_IN_CHANGE = "SECRET_IN_CHANGE"
+    # Not in the PRD's list: Jev judged the issue's criteria untestable or the
+    # change too large (app.intake). Checked before any tokens are spent.
+    ISSUE_NOT_READY = "ISSUE_NOT_READY"
     UPSTREAM_API = "UPSTREAM_API"
     UNKNOWN = "UNKNOWN"
 

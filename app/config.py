@@ -62,6 +62,9 @@ class WorkerSettings:
     lease_seconds: float = 3600.0
     run_image: str = "kaffeepause"
     work_dir: str = "/work"  # the worker's private clones; never shared
+    # Jev readiness gate (app.intake); off when the key is empty. Worker only.
+    typesafe_api_key: str = field(default="", repr=False)
+    typesafe_model: str = "jev-latest"
 
 
 def load_webhook_settings() -> WebhookSettings:
@@ -87,4 +90,6 @@ def load_worker_settings() -> WorkerSettings:
             os.environ.get("WORKER_POLL_INTERVAL_SECONDS", "2")
         ),
         lease_seconds=float(os.environ.get("WORKER_LEASE_SECONDS", "3600")),
+        typesafe_api_key=os.environ.get("TYPESAFE_API_KEY", ""),
+        typesafe_model=os.environ.get("TYPESAFE_MODEL") or "jev-latest",
     )
